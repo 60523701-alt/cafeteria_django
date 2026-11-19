@@ -61,6 +61,13 @@
                     Acción
                 </th>
 
+{% if es_administrador %}
+    <th>
+        Administración
+    </th>
+{% endif %}
+
+
             </tr>
 
         </thead>
@@ -100,24 +107,59 @@
 
 
                 <!-- Estado -->
-                <td>
+<td>
 
-                    {% include "pedidos/_estado_badge.html" with pedido=pedido %}
+    {% if es_administrador %}
 
-                </td>
+        <form method="POST"
+              action="{% url 'cambiar_estado_pedido' pedido.id %}">
+
+            {% csrf_token %}
+
+            {{ pedido.formulario_estado.estado }}
+
+            <button type="submit"
+                    class="btn btn-success btn-sm mt-2">
+                Actualizar
+            </button>
+
+        </form>
+
+    {% else %}
+
+        {% include "pedidos/_estado_badge.html" with pedido=pedido %}
+
+    {% endif %}
+
+</td>
 
 
                 <!-- Detalle -->
-                <td>
+<td>
 
-                    <a
-                        href="{% url 'detalle_pedido' pedido.id %}"
-                        class="btn btn-primary btn-sm"
-                    >
-                        Ver detalle
-                    </a>
+    <a
+        href="{% url 'detalle_pedido' pedido.id %}"
+        class="btn btn-primary btn-sm"
+    >
+        Ver detalle
+    </a>
 
-                </td>
+</td>
+
+{% if es_administrador %}
+
+<td>
+
+    <a
+        href="{% url 'detalle_pedido' pedido.id %}"
+        class="btn btn-warning btn-sm"
+    >
+        Administrar
+    </a>
+
+</td>
+
+{% endif %}
 
 
             </tr>

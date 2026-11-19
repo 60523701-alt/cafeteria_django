@@ -103,7 +103,23 @@ urlpatterns = [
         name="detalle_pedido",
     ),
 
+    # -----------------------------------------------------
+    # ADMINISTRAR PEDIDOS
+    # -----------------------------------------------------
 
+    # Editar cantidad de un detalle.
+    path(
+        "pedido/<int:pedido_id>/detalle/<int:detalle_id>/editar/",
+        views.editar_cantidad_pedido,
+        name="editar_cantidad_pedido",
+    ),
+
+    # Cambiar estado del pedido.
+    path(
+        "pedido/<int:pedido_id>/cambiar-estado/",
+        views.cambiar_estado_pedido,
+        name="cambiar_estado_pedido",
+    ),
     # -----------------------------------------------------
     # REPORTES
     # -----------------------------------------------------
