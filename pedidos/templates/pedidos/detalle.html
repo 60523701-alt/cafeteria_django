@@ -1,157 +1,151 @@
-{% extends "base.html" %}
 
+{% extends "base.html" %}
 
 {% block content %}
 
-
-<h1>
-
-    Pedido #{{ pedido.id }}
-
-</h1>
-
+<h1>Pedido #{{ pedido.id }}</h1>
 
 <div class="mb-4">
 
-
-    <strong>
-        Fecha:
-    </strong>
-
+    <strong>Fecha:</strong>
     {{ pedido.fecha|date:"d/m/Y H:i" }}
 
     <br>
 
-
-<strong>
-    Estado:
-</strong>
-
-{% include "pedidos/_estado_badge.html" with pedido=pedido %}
-
-
+    <strong>Estado:</strong>
+    {% include "pedidos/_estado_badge.html" with pedido=pedido %}
 
 </div>
-
 
 <div class="table-responsive">
 
+    <table class="table table-bordered">
 
-<table class="table table-bordered">
+        <thead class="table-dark">
+            <tr>
+                <th>Producto</th>
+                <th>Precio unitario</th>
+                <th>Cantidad</th>
+                <th>Subtotal</th>
 
+                {% if es_administrador and pedido.estado == "PENDIENTE" %}
+                    <th>Acciones</th>
+                {% endif %}
+            </tr>
+        </thead>
 
-<thead class="table-dark">
+        <tbody>
 
-<tr>
+            {% for detalle in detalles %}
 
-    <th>
-        Producto
-    </th>
+            <tr>
 
-    <th>
-        Precio unitario
-    </th>
+                <td>
+                    {{ detalle.producto.nombre }}
+                </td>
 
-    <th>
-        Cantidad
-    </th>
+                <td>
+                    S/ {{ detalle.precio_unitario }}
+                </td>
 
-    <th>
-        Subtotal
-    </th>
+                <td>
+                    {% if es_administrador and pedido.estado == "PENDIENTE" %}
 
-</tr>
+                        <form method="POST"
+                              action="{% url 'editar_cantidad_pedido' pedido.id detalle.id %}">
 
-</thead>
+                            {% csrf_token %}
 
+                            {{ detalle.formulario.cantidad }}
 
-<tbody>
+                    {% else %}
 
+                        {{ detalle.cantidad }}
 
-{% for detalle in detalles %}
+                    {% endif %}
+                </td>
 
+                <td>
+                    S/ {{ detalle.subtotal }}
+                </td>
 
-<tr>
+                {% if es_administrador and pedido.estado == "PENDIENTE" %}
 
+                    <td>
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                Guardar
+                            </button>
 
-    <td>
+                        </form>
+                    </td>
 
-        {{ detalle.producto.nombre }}
+                {% endif %}
 
-    </td>
+            </tr>
 
+            {% empty %}
 
-    <td>
+            <tr>
+                <td colspan="5" class="text-center">
+                    No existen productos.
+                </td>
+            </tr>
 
-        S/ {{ detalle.precio_unitario }}
+            {% endfor %}
 
-    </td>
+        </tbody>
 
-
-    <td>
-
-        {{ detalle.cantidad }}
-
-    </td>
-
-
-    <td>
-
-        S/ {{ detalle.subtotal }}
-
-    </td>
-
-
-</tr>
-
-
-{% empty %}
-
-
-<tr>
-
-    <td
-        colspan="4"
-        class="text-center"
-    >
-
-        No existen productos.
-
-    </td>
-
-</tr>
-
-
-{% endfor %}
-
-
-</tbody>
-
-
-</table>
-
+    </table>
 
 </div>
-
 
 <div class="text-end">
-
     <h3>
-
-        Total:
-        S/ {{ pedido.total }}
-
+        Total: S/ {{ pedido.total }}
     </h3>
-
 </div>
 
 
-<a
-    href="{% url 'mis_pedidos' %}"
-    class="btn btn-secondary"
->
+{% if es_administrador %}
+
+    <hr>
+
+    <h4>Administrar pedido</h4>
+
+    {% if formulario_estado.fields.estado %}
+
+        {% if formulario_estado.fields.estado.choices|length > 1 %}
+
+            <form method="POST"
+                  action="{% url 'cambiar_estado_pedido' pedido.id %}">
+
+                {% csrf_token %}
+
+                <div class="mb-3">
+                    {{ formulario_estado.estado }}
+                </div>
+
+                <button type="submit" class="btn btn-success">
+                    Actualizar estado
+                </button>
+
+            </form>
+
+        {% else %}
+
+            <p class="text-muted">
+                Este pedido tiene un estado final y no permite más cambios.
+            </p>
+
+        {% endif %}
+
+    {% endif %}
+
+{% endif %}
+
+
+<a href="{% url 'mis_pedidos' %}" class="btn btn-secondary mt-3">
     Volver a Mis pedidos
 </a>
-
 
 {% endblock %}

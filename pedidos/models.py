@@ -80,6 +80,7 @@ class Producto(models.Model):
         ordering = ["nombre"]
 
 
+
 # =========================================================
 # MODELO PEDIDO
 # =========================================================
@@ -117,11 +118,36 @@ class Pedido(models.Model):
         default=Estado.PENDIENTE,
     )
 
+    # Evita devolver el stock más de una vez.
+    inventario_devuelto = models.BooleanField(default=False)
+
     def __str__(self):
         return f"Pedido {self.id} - {self.usuario.username}"
 
+    # Transiciones permitidas.
+    def estados_siguientes(self):
+
+        transiciones = {
+            self.Estado.PENDIENTE: [
+                self.Estado.PREPARACION,
+                self.Estado.CANCELADO,
+            ],
+
+            self.Estado.PREPARACION: [
+                self.Estado.ATENDIDO,
+                self.Estado.CANCELADO,
+            ],
+
+            self.Estado.ATENDIDO: [],
+
+            self.Estado.CANCELADO: [],
+        }
+
+        return transiciones.get(self.estado, [])
+
     class Meta:
         ordering = ["-fecha"]
+
 
 
 # =========================================================

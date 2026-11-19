@@ -47,6 +47,8 @@ from .carrito import Carrito
 from .forms import (
     ProductoFiltroForm,
     ReporteFiltroForm,
+    CantidadDetalleForm,
+    PedidoEstadoForm,
 )
 
 
@@ -56,7 +58,14 @@ from .models import (
     Pedido,
     Producto,
 )
+# =========================================================
+# VERIFICAR ADMINISTRADOR
+# =========================================================
 
+def verificar_administrador(request):
+
+    if not request.user.is_staff:
+        raise PermissionDenied
 
 # =========================================================
 # INICIO
@@ -656,6 +665,7 @@ def confirmar_pedido(request):
     )
 
 
+
 # =========================================================
 # MIS PEDIDOS
 # =========================================================
@@ -663,19 +673,32 @@ def confirmar_pedido(request):
 @login_required
 def mis_pedidos(request):
 
-    pedidos = (
-        Pedido.objects
-        .filter(
+    # Los administradores pueden ver todos los pedidos.
+    if request.user.is_staff:
+        pedidos = Pedido.objects.all()
+    else:
+        pedidos = Pedido.objects.filter(
             usuario=request.user
         )
-        .order_by("-fecha")
-    )
+
+    pedidos = pedidos.order_by("-fecha")
+
+    # Crear un formulario de estado para cada pedido.
+    if request.user.is_staff:
+        for pedido in pedidos:
+            pedido.formulario_estado = PedidoEstadoForm(
+                pedido=pedido,
+                initial={
+                    "estado": pedido.estado,
+                },
+            )
 
     return render(
         request,
         "pedidos/mis_pedidos.html",
         {
             "pedidos": pedidos,
+            "es_administrador": request.user.is_staff,
         },
     )
 
@@ -685,30 +708,55 @@ def mis_pedidos(request):
 # =========================================================
 
 @login_required
-def detalle_pedido(
-    request,
-    pedido_id,
-):
+def detalle_pedido(request, pedido_id):
 
-    # El pedido debe cumplir DOS condiciones:
-    #
-    # - tener el identificador solicitado;
-    # - pertenecer al usuario autenticado.
-    pedido = get_object_or_404(
+    # Los administradores pueden consultar cualquier pedido.
+    if request.user.is_staff:
 
-        Pedido,
+        pedido = get_object_or_404(
+            Pedido,
+            id=pedido_id,
+        )
 
-        id=pedido_id,
+    # Los usuarios normales solo pueden consultar sus pedidos.
+    else:
 
-        usuario=request.user,
+        pedido = get_object_or_404(
+            Pedido,
+            id=pedido_id,
+            usuario=request.user,
+        )
 
-    )
-
+    # Recuperar los detalles.
     detalles = (
         pedido.detalles
         .select_related("producto")
         .all()
     )
+
+    # Identificar si es administrador.
+    es_administrador = request.user.is_staff
+
+    # Crear un formulario para cada detalle.
+    if es_administrador:
+
+        for detalle in detalles:
+
+            detalle.formulario = CantidadDetalleForm(
+                instance=detalle
+            )
+
+        # Formulario para cambiar el estado.
+        formulario_estado = PedidoEstadoForm(
+            pedido=pedido,
+            initial={
+                "estado": pedido.estado,
+            },
+        )
+
+    else:
+
+        formulario_estado = None
 
     return render(
         request,
@@ -716,10 +764,202 @@ def detalle_pedido(
         {
             "pedido": pedido,
             "detalles": detalles,
+            "es_administrador": es_administrador,
+            "formulario_estado": formulario_estado,
         },
     )
 
+# =========================================================
+# EDITAR CANTIDAD DE UN PEDIDO
+# =========================================================
 
+@login_required
+@require_POST
+def editar_cantidad_pedido(request, pedido_id, detalle_id):
+
+    # Verificar que sea administrador.
+    verificar_administrador(request)
+
+    with transaction.atomic():
+
+        # Buscar y bloquear el pedido.
+        pedido = get_object_or_404(
+            Pedido.objects.select_for_update(),
+            id=pedido_id,
+        )
+
+        # Solo se pueden modificar pedidos pendientes.
+        if pedido.estado != Pedido.Estado.PENDIENTE:
+
+            messages.error(
+                request,
+                "Solo se pueden modificar pedidos pendientes.",
+            )
+
+            return redirect("mis_pedidos")
+
+        # Buscar el detalle correspondiente.
+        detalle = get_object_or_404(
+            DetallePedido.objects.select_for_update(),
+            id=detalle_id,
+            pedido=pedido,
+        )
+
+        # Validar el formulario.
+        form = CantidadDetalleForm(
+            request.POST,
+            instance=detalle,
+        )
+
+        if form.is_valid():
+
+            cantidad_anterior = detalle.cantidad
+            cantidad_nueva = form.cleaned_data["cantidad"]
+
+            # Bloquear el producto para modificar su stock.
+            producto = get_object_or_404(
+                Producto.objects.select_for_update(),
+                id=detalle.producto_id,
+            )
+
+            diferencia = cantidad_nueva - cantidad_anterior
+
+            # Si se aumenta la cantidad, comprobar stock.
+            if diferencia > 0:
+
+                if producto.stock < diferencia:
+
+                    messages.error(
+                        request,
+                        f"Stock insuficiente para {producto.nombre}. "
+                        f"Disponible: {producto.stock}.",
+                    )
+
+                    return redirect("mis_pedidos")
+
+                producto.stock -= diferencia
+
+            # Si se reduce la cantidad, devolver stock.
+            elif diferencia < 0:
+
+                producto.stock += abs(diferencia)
+
+            # Guardar el nuevo stock.
+            producto.save(
+                update_fields=["stock"]
+            )
+
+            # Guardar la nueva cantidad.
+            form.save()
+
+            # Recalcular el total del pedido.
+            detalles = pedido.detalles.all()
+
+            pedido.total = sum(
+                (
+                    d.precio_unitario * d.cantidad
+                    for d in detalles
+                ),
+                Decimal("0.00"),
+            )
+
+            pedido.save(
+                update_fields=["total"]
+            )
+
+            messages.success(
+                request,
+                "La cantidad y el total del pedido fueron actualizados.",
+            )
+
+        else:
+
+            messages.error(
+                request,
+                "No se pudo actualizar la cantidad.",
+            )
+
+    return redirect("mis_pedidos")
+# =========================================================
+# CAMBIAR ESTADO DEL PEDIDO
+# =========================================================
+
+@login_required
+@require_POST
+def cambiar_estado_pedido(request, pedido_id):
+
+    # Verificar que sea administrador.
+    verificar_administrador(request)
+
+    with transaction.atomic():
+
+        # Buscar y bloquear el pedido.
+        pedido = get_object_or_404(
+            Pedido.objects.select_for_update(),
+            id=pedido_id,
+        )
+
+        # Validar el nuevo estado.
+        form = PedidoEstadoForm(
+            request.POST,
+            pedido=pedido,
+        )
+
+        if form.is_valid():
+
+            nuevo_estado = form.cleaned_data["estado"]
+
+            # Si el pedido se cancela, devolver el stock.
+            if (
+    nuevo_estado == Pedido.Estado.CANCELADO
+    and pedido.estado != Pedido.Estado.CANCELADO
+):
+
+                if not pedido.inventario_devuelto:
+
+                    detalles = pedido.detalles.select_related(
+                        "producto"
+                    )
+
+                    for detalle in detalles:
+
+                        producto = Producto.objects.select_for_update().get(
+                            id=detalle.producto_id
+                        )
+
+                        producto.stock += detalle.cantidad
+
+                        producto.save(
+                            update_fields=["stock"]
+                        )
+
+                    # Evitar devolver el stock nuevamente.
+                    pedido.inventario_devuelto = True
+
+            # Actualizar el estado.
+            pedido.estado = nuevo_estado
+
+            pedido.save(
+                update_fields=[
+                    "estado",
+                    "inventario_devuelto",
+                ]
+            )
+
+            messages.success(
+                request,
+                "El estado del pedido fue actualizado correctamente.",
+            )
+
+        else:
+
+            messages.error(
+                request,
+                "No se pudo cambiar el estado del pedido. "
+                "La transición no está permitida.",
+            )
+
+    return redirect("mis_pedidos")
 # =========================================================
 # REPORTES
 # =========================================================

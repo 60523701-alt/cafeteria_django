@@ -6,7 +6,7 @@
 from django import forms
 
 # Modelos que utilizaremos dentro de los formularios.
-from .models import Categoria, Pedido
+from .models import Categoria, Pedido, DetallePedido
 
 
 # =========================================================
@@ -138,3 +138,91 @@ class ReporteFiltroForm(forms.Form):
             )
 
         return datos
+# =========================================================
+# FORMULARIO PARA EDITAR CANTIDADES DE UN PEDIDO
+# =========================================================
+
+class CantidadDetalleForm(forms.ModelForm):
+
+    class Meta:
+        model = DetallePedido
+
+        fields = ["cantidad"]
+
+        widgets = {
+            "cantidad": forms.NumberInput(
+                attrs={
+                    "class": "form-control",
+                    "min": 1,
+                }
+            ),
+        }
+
+    def clean_cantidad(self):
+
+        cantidad = self.cleaned_data.get("cantidad")
+
+        # No permitir cantidades menores a uno.
+        if cantidad < 1:
+            raise forms.ValidationError(
+                "La cantidad debe ser como mínimo 1."
+            )
+
+        # Solo se pueden modificar pedidos pendientes.
+        if self.instance.pedido.estado != Pedido.Estado.PENDIENTE:
+            raise forms.ValidationError(
+                "Solo se pueden modificar pedidos pendientes."
+            )
+
+        return cantidad
+# =========================================================
+# FORMULARIO PARA CAMBIAR EL ESTADO DEL PEDIDO
+# =========================================================
+
+
+class PedidoEstadoForm(forms.Form):
+
+    estado = forms.ChoiceField(
+        label="Cambiar estado",
+        choices=Pedido.Estado.choices,
+        widget=forms.Select(attrs={"class": "form-select"})
+    )
+
+    def __init__(self, *args, pedido=None, **kwargs):
+
+        super().__init__(*args, **kwargs)
+
+        self.pedido = pedido
+
+        if self.pedido is not None:
+
+            estados_permitidos = [
+                self.pedido.estado,
+                *self.pedido.estados_siguientes(),
+            ]
+
+            self.fields["estado"].choices = [
+                (valor, etiqueta)
+                for valor, etiqueta in Pedido.Estado.choices
+                if valor in estados_permitidos
+            ]
+
+    def clean_estado(self):
+
+        nuevo_estado = self.cleaned_data.get("estado")
+
+        if self.pedido is None:
+
+            raise forms.ValidationError(
+                "No se encontró el pedido."
+            )
+
+        if nuevo_estado != self.pedido.estado:
+
+            if nuevo_estado not in self.pedido.estados_siguientes():
+
+                raise forms.ValidationError(
+                    "No está permitido realizar este cambio de estado."
+                )
+
+        return nuevo_estado
